@@ -24,7 +24,9 @@ func AcquireLock(lockPath string) (*os.File, error) {
 	// Non-blocking lock attempt. Use LOCK_NB if you want to fail immediately,
 	// but here we wait (LOCK_EX) as per original logic.
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX); err != nil {
-		f.Close()
+		if close_err := f.Close(); close_err != nil {
+			fmt.Printf("Error occurred closing Unix Socket: %s", close_err)
+		}
 		return nil, err
 	}
 
@@ -36,6 +38,10 @@ func ReleaseLock(f *os.File) {
 	if f == nil {
 		return
 	}
-	unix.Flock(int(f.Fd()), unix.LOCK_UN)
-	f.Close()
+	if lock_err := unix.Flock(int(f.Fd()), unix.LOCK_UN); lock_err != nil {
+		fmt.Printf("Error occurred locking Unix Socket: %s", lock_err)
+	}
+	if close_err := f.Close(); close_err != nil {
+		fmt.Printf("Error occurred closing Unix Socket: %s", close_err)
+	}
 }

@@ -26,7 +26,11 @@ func Run(linkName, host string, batchMode bool, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer func() {
+		if close_err := conn.Close(); close_err != nil {
+			fmt.Printf("client close error: %s", close_err)
+		}
+	}()
 
 	if batchMode {
 		return runBatch(conn)
@@ -48,8 +52,16 @@ func runSingle(conn net.Conn, cmd string) error {
 
 	// Handle Response
 	return protocol.DecodeLoop(conn,
-		func(b []byte) { os.Stdout.Write(b) },
-		func(b []byte) { os.Stderr.Write(b) },
+		func(b []byte) {
+			if _, os_err := os.Stdout.Write(b); os_err != nil {
+				fmt.Printf("Error occurred writing to STDOUT: %v", os_err)
+			}
+		},
+		func(b []byte) {
+			if _, os_err := os.Stderr.Write(b); os_err != nil {
+				fmt.Printf("Error occurred writing to STDERR: %v", os_err)
+			}
+		},
 		func(code int) bool {
 			os.Exit(code) // Hard exit on single command
 			return true
@@ -66,18 +78,30 @@ func runBatch(conn net.Conn) error {
 			if cmd == "" {
 				continue
 			}
-			fmt.Fprintf(conn, "%s\n", cmd)
+			if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
+				fmt.Printf("Error occurred printing to connection: %s", err)
+			}
 		}
 		// Close Write side to signal EOF to server
 		if c, ok := conn.(*net.UnixConn); ok {
-			c.CloseWrite()
+			if err := c.CloseWrite(); err != nil {
+				fmt.Printf("Error occurred sending EOF signal to server: %s", err)
+			}
 		}
 	}()
 
 	// Sync Receiver
 	return protocol.DecodeLoop(conn,
-		func(b []byte) { os.Stdout.Write(b) },
-		func(b []byte) { os.Stderr.Write(b) },
+		func(b []byte) {
+			if _, os_err := os.Stdout.Write(b); os_err != nil {
+				fmt.Printf("Error occurred writing to STDOUT: %v", os_err)
+			}
+		},
+		func(b []byte) {
+			if _, os_err := os.Stderr.Write(b); os_err != nil {
+				fmt.Printf("Error occurred writing to STDERR: %v", os_err)
+			}
+		},
 		func(code int) bool {
 			if code != 0 {
 				fmt.Fprintf(os.Stderr, "[Exit %d]\n", code)

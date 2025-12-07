@@ -28,7 +28,7 @@ import (
 func Start(host, linkName, homeDir string) {
 	// 1. Setup Logging
 	setupDaemonLogging(homeDir, linkName)
-	log.Printf("Daemon starting for %s...", host)
+	log.Printf("Daemon starting for %s.", host)
 
 	// 2. Lock
 	socketPath := config.ResolveSocketPath(homeDir, linkName)
@@ -45,18 +45,34 @@ func Start(host, linkName, homeDir string) {
 	if err != nil {
 		log.Fatalf("%v", err)
 	}
-	defer client.Close()
+	defer func() {
+		if close_err := client.Close(); close_err != nil {
+			log.Println("client close error: ", close_err)
+		}
+	}()
 
 	// 4. Setup Unix Socket Listener
-	os.Remove(socketPath) // Clean up old socket
+	if os_err := os.Remove(socketPath); os_err != nil {
+		if !os.IsNotExist(os_err) {
+			log.Fatalf("Failed to remove stale socket: %v", os_err)
+		}
+	}
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		log.Fatalf("Failed to listen on socket: %v", err)
 	}
-	defer listener.Close()
-	defer os.Remove(socketPath)
+	defer func() {
+		if close_err := listener.Close(); close_err != nil {
+			log.Println("listener close error: ", close_err)
+		}
+	}()
+	defer func() {
+		if os_err := os.Remove(socketPath); os_err != nil {
+			log.Println("error occurred removing completed socket: ", os_err)
+		}
+	}()
 
-	log.Printf("Ready. Listening on %s", socketPath)
+	log.Printf("Listening on %s", socketPath)
 
 	// 5. Accept Loop
 	serveLoop(listener, client)
@@ -67,8 +83,11 @@ func serveLoop(listener net.Listener, sshClient *ssh.Client) {
 
 	for {
 		// Set deadline to kill daemon if idle
-		listener.(*net.UnixListener).SetDeadline(time.Now().Add(config.IdleTimeout))
+		setDeadlineErr := listener.(*net.UnixListener).SetDeadline(time.Now().Add(config.IdleTimeout))
 
+		if setDeadlineErr != nil {
+			log.Println("setting deadline failed: ", setDeadlineErr)
+		}
 		conn, err := listener.Accept()
 		if err != nil {
 			if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() {
@@ -91,7 +110,11 @@ func serveLoop(listener net.Listener, sshClient *ssh.Client) {
 }
 
 func handleConnection(conn net.Conn, client *ssh.Client) {
-	defer conn.Close()
+	defer func() {
+		if close_err := conn.Close(); close_err != nil {
+			log.Println("connection close error: ", close_err)
+		}
+	}()
 	encoder := protocol.NewEncoder(conn)
 	reader := bufio.NewReader(conn)
 
@@ -124,17 +147,31 @@ func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder) {
 	session, err := client.NewSession()
 	if err != nil {
 		var buf []byte
-		enc.Encode(protocol.TypeStderr, fmt.Appendf(buf, "SSH session error: %v\n", err))
-		enc.Encode(protocol.TypeExit, intToBytes(255))
+		if enc_err := enc.Encode(protocol.TypeStderr, fmt.Appendf(buf, "SSH session error: %v\n", err)); enc_err != nil {
+			log.Printf("Error occured encoding STDERR: %v", enc_err)
+		}
+		if enc_err := enc.Encode(protocol.TypeExit, intToBytes(255)); enc_err != nil {
+			log.Printf("Error occured encoding exit code: %v", enc_err)
+		}
 		return
 	}
-	defer session.Close()
+	defer func() {
+		if close_err := session.Close(); close_err != nil {
+			if close_err != io.EOF {
+				log.Println("session close error: ", close_err)
+			} else {
+				log.Println("executed: ", cmd)
+			}
+		}
+	}()
 
 	output, err := session.CombinedOutput(cmd)
 
 	// Send Output
 	if len(output) > 0 {
-		enc.Encode(protocol.TypeStdout, output)
+		if enc_err := enc.Encode(protocol.TypeStdout, output); enc_err != nil {
+			log.Printf("Error occured encoding STDOUT: %v", enc_err)
+		}
 	}
 
 	// Determine Exit Code
@@ -147,13 +184,12 @@ func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder) {
 			log.Println("session error (closing): ", exitErr)
 			exitCode = 1
 		}
-		if exitErr == io.EOF {
-			log.Println("completed processing: ", cmd)
-		}
 	}
 
 	// Send Exit Packet
-	enc.Encode(protocol.TypeExit, intToBytes(exitCode))
+	if enc_err := enc.Encode(protocol.TypeExit, intToBytes(exitCode)); enc_err != nil {
+		log.Printf("Error occured encoding exit code: %v", enc_err)
+	}
 }
 
 // Helpers
