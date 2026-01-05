@@ -1,9 +1,9 @@
 # remote
-### sys_remote.pl alternative for Enterprise Linux execution.
+### Execute remote commands similar to `SSH <server> command` for Enterprise Linux execution using multiplexing and simplifying the command.
 
 ## Deps:
 
-Install Golang, and use `go build` to pull the dependencies you need:
+Install Golang, and use `go build` to pull the library dependencies you need:
 
 ### RHEL 8:
 ```bash
@@ -28,7 +28,7 @@ sudo yum module install go-toolset -y
 ### Windows:
 https://go.dev/dl/
 
-## Production build command:
+## Production Build Command:
 
 ```bash
 GOOS="linux"; go build -ldflags="-s -w" # set GOOS for Windows users
@@ -37,7 +37,7 @@ This will build the smallest and most efficient binary possible.
 
 ## Use:
 
-This application is meant to be soft-linked with the name of the server it will forward execution to:
+This application is meant to be soft-linked with the name of the server it will forward execution to (ensure the soft-link is on user's PATH):
 
 ```bash
 ln -s remote someserver
