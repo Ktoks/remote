@@ -30,6 +30,21 @@ func Start(host, linkName, homeDir string) {
 	setupDaemonLogging(homeDir, linkName)
 	log.Printf("Daemon starting for %s.", host)
 
+	// Load configuration
+	configPath := filepath.Join(homeDir, ".config", "remote", "config.json")
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Fallback to embedded config if user config is not found
+			cfg, err = config.LoadDefaultConfig()
+			if err != nil {
+				log.Fatalf("Failed to load embedded configuration: %v", err)
+			}
+		} else {
+			log.Fatalf("Failed to load user configuration: %v", err)
+		}
+	}
+
 	// 2. Lock
 	socketPath := config.ResolveSocketPath(homeDir, linkName)
 	lockPath := filepath.Join(filepath.Dir(socketPath), linkName+".lock")
@@ -75,10 +90,10 @@ func Start(host, linkName, homeDir string) {
 	log.Printf("Listening on %s", socketPath)
 
 	// 5. Accept Loop
-	serveLoop(listener, client)
+	serveLoop(listener, client, cfg)
 }
 
-func serveLoop(listener net.Listener, sshClient *ssh.Client) {
+func serveLoop(listener net.Listener, sshClient *ssh.Client, cfg *config.Config) {
 	var activeConns int32
 
 	for {
@@ -104,12 +119,12 @@ func serveLoop(listener net.Listener, sshClient *ssh.Client) {
 		atomic.AddInt32(&activeConns, 1)
 		go func() {
 			defer atomic.AddInt32(&activeConns, -1)
-			handleConnection(conn, sshClient)
+			handleConnection(conn, sshClient, cfg)
 		}()
 	}
 }
 
-func handleConnection(conn net.Conn, client *ssh.Client) {
+func handleConnection(conn net.Conn, client *ssh.Client, cfg *config.Config) {
 	defer func() {
 		if close_err := conn.Close(); close_err != nil {
 			log.Println("connection close error: ", close_err)
@@ -137,13 +152,29 @@ func handleConnection(conn net.Conn, client *ssh.Client) {
 		go func(cmd string) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			execRemote(client, cmd, encoder)
+			execRemote(client, cmd, encoder, cfg)
 		}(cmdStr)
 	}
 	wg.Wait()
 }
 
-func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder) {
+func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder, cfg *config.Config) {
+	// Security: Validate the command against the allowlist
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
+		return // Ignore empty commands
+	}
+	if !cfg.IsCommandAllowed(parts[0]) {
+		errMsg := fmt.Sprintf("Command not allowed: %s\n", parts[0])
+		if enc_err := enc.Encode(protocol.TypeStderr, []byte(errMsg)); enc_err != nil {
+			log.Printf("Error occured encoding STDERR: %v", enc_err)
+		}
+		if enc_err := enc.Encode(protocol.TypeExit, intToBytes(1)); enc_err != nil {
+			log.Printf("Error occured encoding exit code: %v", enc_err)
+		}
+		return
+	}
+	
 	session, err := client.NewSession()
 	if err != nil {
 		var buf []byte
