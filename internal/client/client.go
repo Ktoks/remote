@@ -6,11 +6,13 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/ktoks/remote/internal/config"
+	"github.com/ktoks/remote/internal/ipc"
 	"github.com/ktoks/remote/internal/protocol"
 )
 
@@ -116,6 +118,10 @@ func connectOrSpawn(socketPath, linkName string) (net.Conn, error) {
 	if err == nil {
 		return conn, nil
 	}
+
+	// Connection failed, so perform cleanup before trying to spawn a new daemon.
+	lockPath := filepath.Join(filepath.Dir(socketPath), linkName+".lock")
+	ipc.CheckAndCleanLock(lockPath, socketPath)
 
 	// Spawn Daemon
 	exe, _ := os.Executable()

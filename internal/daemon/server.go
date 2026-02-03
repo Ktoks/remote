@@ -30,19 +30,21 @@ func Start(host, linkName, homeDir string) {
 	setupDaemonLogging(homeDir, linkName)
 	log.Printf("Daemon starting for %s.", host)
 
-	// Load configuration
-	configPath := filepath.Join(homeDir, ".config", "remote", "config.json")
-	cfg, err := config.LoadConfig(configPath)
+	// Load default embedded configuration
+	cfg, err := config.LoadDefaultConfig()
 	if err != nil {
-		if os.IsNotExist(err) {
-			// Fallback to embedded config if user config is not found
-			cfg, err = config.LoadDefaultConfig()
-			if err != nil {
-				log.Fatalf("Failed to load embedded configuration: %v", err)
-			}
-		} else {
-			log.Fatalf("Failed to load user configuration: %v", err)
+		log.Fatalf("Failed to load embedded configuration: %v", err)
+	}
+
+	// Override with user configuration if it exists
+	configPath := filepath.Join(homeDir, ".config", "remote", "config.json")
+	if _, err := os.Stat(configPath); err == nil {
+		userCfg, err := config.LoadConfig(configPath)
+		if err != nil {
+			log.Fatalf("Error loading user configuration from %s: %v", configPath, err)
 		}
+		cfg = userCfg
+		log.Printf("Loaded user configuration from %s", configPath)
 	}
 
 	// 2. Lock
