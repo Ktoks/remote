@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -30,7 +31,7 @@ func Run(linkName, host string, batchMode bool, args []string) error {
 	}
 	defer func() {
 		if close_err := conn.Close(); close_err != nil {
-			fmt.Printf("client close error: %s", close_err)
+			fmt.Fprintf(os.Stderr, "client close error: %s", close_err)
 		}
 	}()
 
@@ -56,12 +57,12 @@ func runSingle(conn net.Conn, cmd string) error {
 	return protocol.DecodeLoop(conn,
 		func(b []byte) {
 			if _, os_err := os.Stdout.Write(b); os_err != nil {
-				fmt.Printf("Error occurred writing to STDOUT: %v", os_err)
+				fmt.Fprintf(os.Stderr, "Error occurred writing to STDOUT: %v", os_err)
 			}
 		},
 		func(b []byte) {
 			if _, os_err := os.Stderr.Write(b); os_err != nil {
-				fmt.Printf("Error occurred writing to STDERR: %v", os_err)
+				fmt.Fprintf(os.Stderr, "Error occurred writing to STDERR: %v", os_err)
 			}
 		},
 		func(code int) bool {
@@ -81,13 +82,13 @@ func runBatch(conn net.Conn) error {
 				continue
 			}
 			if _, err := fmt.Fprintf(conn, "%s\n", cmd); err != nil {
-				fmt.Printf("Error occurred printing to connection: %s", err)
+				fmt.Fprintf(os.Stderr, "Error occurred printing to connection: %s", err)
 			}
 		}
 		// Close Write side to signal EOF to server
 		if c, ok := conn.(*net.UnixConn); ok {
 			if err := c.CloseWrite(); err != nil {
-				fmt.Printf("Error occurred sending EOF signal to server: %s", err)
+				fmt.Fprintf(os.Stderr, "Error occurred sending EOF signal to server: %s", err)
 			}
 		}
 	}()
@@ -96,12 +97,12 @@ func runBatch(conn net.Conn) error {
 	return protocol.DecodeLoop(conn,
 		func(b []byte) {
 			if _, os_err := os.Stdout.Write(b); os_err != nil {
-				fmt.Printf("Error occurred writing to STDOUT: %v", os_err)
+				fmt.Fprintf(os.Stderr, "Error occurred writing to STDOUT: %v", os_err)
 			}
 		},
 		func(b []byte) {
 			if _, os_err := os.Stderr.Write(b); os_err != nil {
-				fmt.Printf("Error occurred writing to STDERR: %v", os_err)
+				fmt.Fprintf(os.Stderr, "Error occurred writing to STDERR: %v", os_err)
 			}
 		},
 		func(code int) bool {
@@ -119,12 +120,40 @@ func connectOrSpawn(socketPath, linkName string) (net.Conn, error) {
 		return conn, nil
 	}
 
-	// Connection failed, so perform cleanup before trying to spawn a new daemon.
+	// --- Comprehensive Cleanup ---
+
+	// 1. Clean up based on lock file status (stale or zombie with no socket)
 	lockPath := filepath.Join(filepath.Dir(socketPath), linkName+".lock")
 	ipc.CheckAndCleanLock(lockPath, socketPath)
 
-	// Spawn Daemon
+	// 2. Clean up any remaining zombies that have no lock file.
 	exe, _ := os.Executable()
+	searchPattern := fmt.Sprintf("%s --daemon %s", exe, linkName)
+	// Use pgrep to find processes by full command line.
+	// -f: Interpret pattern as a full extended regular expression
+	pgrepCmd := exec.Command("pgrep", "-f", searchPattern)
+	if output, err := pgrepCmd.Output(); err == nil {
+		pids := strings.Fields(string(output))
+		for _, pidStr := range pids {
+			if pid, convErr := strconv.Atoi(pidStr); convErr == nil {
+				// Don't kill ourselves if pgrep finds the current client process
+				if pid == os.Getpid() {
+					continue
+				}
+				if process, findErr := os.FindProcess(pid); findErr == nil {
+					_ = process.Kill()
+					fmt.Fprintf(os.Stderr, "Killed zombie daemon process with PID %d\n", pid)
+				}
+			}
+		}
+		if len(pids) > 0 {
+			time.Sleep(100 * time.Millisecond) // Wait for killed processes
+		}
+	}
+
+
+	// --- Spawn New Daemon ---
+
 	cmd := exec.Command(exe, "--daemon", linkName)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // Detach
 	if err := cmd.Start(); err != nil {
