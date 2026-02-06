@@ -60,7 +60,7 @@ func Start(host, linkName, homeDir string) {
 	// 3. Establish SSH Connection
 	client, err := createSSHClient(host, homeDir)
 	if err != nil {
-		log.Fatalf("%v", err)
+		log.Fatalf("error occurred starting ssh connection: %v", err)
 	}
 	defer func() {
 		if close_err := client.Close(); close_err != nil {
@@ -266,7 +266,7 @@ func createSSHClient(host, home string) (*ssh.Client, error) {
 	}
 
 	// 2. Keys
-	keyFiles := []string{"id_ed25519", "id_rsa"}
+	keyFiles := []string{"id_ed25519", "id_rsa", "ecdsa-sha2-nistp256"}
 	for _, name := range keyFiles {
 		keyPath := filepath.Join(home, ".ssh", name)
 		keyBytes, err := os.ReadFile(keyPath)

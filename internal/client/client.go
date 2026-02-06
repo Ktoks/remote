@@ -168,5 +168,5 @@ func connectOrSpawn(socketPath, linkName string) (net.Conn, error) {
 			return conn, nil
 		}
 	}
-	return nil, fmt.Errorf("timeout waiting for daemon")
+	return nil, fmt.Errorf("timeout waiting for daemon, check the server logs for full error message")
 }
