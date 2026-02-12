@@ -1,8 +1,17 @@
 {
-  "allowed_commands": [
-    "ls",
-    "grep",
-    "cat",
-    "echo"
-  ]
+  "defaults": {
+    "user": "",
+    "allowed_commands": [
+      "ls",
+      "grep",
+      "cat",
+      "echo"
+    ]
+  },
+  "hosts": {
+    "mcpi": {
+      "user": "pi",
+      "allowed_commands": []
+    }
+  }
 }

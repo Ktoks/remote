@@ -47,6 +47,8 @@ func Start(host, linkName, homeDir string) {
 		log.Printf("Loaded user configuration from %s", configPath)
 	}
 
+	hostCfg := cfg.GetHostConfig(host)
+
 	// 2. Lock
 	socketPath := config.ResolveSocketPath(homeDir, linkName)
 	lockPath := filepath.Join(filepath.Dir(socketPath), linkName+".lock")
@@ -58,7 +60,7 @@ func Start(host, linkName, homeDir string) {
 	defer ipc.ReleaseLock(lockFile)
 
 	// 3. Establish SSH Connection
-	client, err := createSSHClient(host, homeDir)
+	client, err := createSSHClient(host, homeDir, hostCfg.User)
 	if err != nil {
 		log.Fatalf("error occurred starting ssh connection: %v", err)
 	}
@@ -92,10 +94,10 @@ func Start(host, linkName, homeDir string) {
 	log.Printf("Listening on %s", socketPath)
 
 	// 5. Accept Loop
-	serveLoop(listener, client, cfg)
+	serveLoop(listener, client, hostCfg)
 }
 
-func serveLoop(listener net.Listener, sshClient *ssh.Client, cfg *config.Config) {
+func serveLoop(listener net.Listener, sshClient *ssh.Client, cfg *config.HostConfig) {
 	var activeConns int32
 
 	for {
@@ -126,7 +128,7 @@ func serveLoop(listener net.Listener, sshClient *ssh.Client, cfg *config.Config)
 	}
 }
 
-func handleConnection(conn net.Conn, client *ssh.Client, cfg *config.Config) {
+func handleConnection(conn net.Conn, client *ssh.Client, cfg *config.HostConfig) {
 	defer func() {
 		if close_err := conn.Close(); close_err != nil {
 			log.Println("connection close error: ", close_err)
@@ -160,7 +162,7 @@ func handleConnection(conn net.Conn, client *ssh.Client, cfg *config.Config) {
 	wg.Wait()
 }
 
-func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder, cfg *config.Config) {
+func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder, cfg *config.HostConfig) {
 	// Security: Validate the command against the allowlist
 	parts := strings.Fields(cmd)
 	if len(parts) == 0 {
@@ -176,7 +178,7 @@ func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder, cfg *conf
 		}
 		return
 	}
-	
+
 	session, err := client.NewSession()
 	if err != nil {
 		var buf []byte
@@ -246,7 +248,7 @@ func setupDaemonLogging(homeDir, identity string) {
 	log.SetOutput(f)
 }
 
-func createSSHClient(host, home string) (*ssh.Client, error) {
+func createSSHClient(host, home, user string) (*ssh.Client, error) {
 	// Enterprise Strictness: Always check known_hosts
 	knownHostPath := filepath.Join(home, ".ssh", "known_hosts")
 	hostKeyCallback, err := knownhosts.New(knownHostPath)
@@ -282,8 +284,13 @@ func createSSHClient(host, home string) (*ssh.Client, error) {
 		return nil, errors.New("no valid authentication methods found (agent or keys)")
 	}
 
+	sshUser := user
+	if sshUser == "" {
+		sshUser = os.Getenv("USER")
+	}
+
 	cfg := &ssh.ClientConfig{
-		User:            os.Getenv("USER"),
+		User:            sshUser,
 		Auth:            methods,
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         5 * time.Second,
