@@ -60,7 +60,7 @@ func Start(host, linkName, homeDir string) {
 	defer ipc.ReleaseLock(lockFile)
 
 	// 3. Establish SSH Connection
-	client, err := createSSHClient(host, homeDir, hostCfg.User)
+	client, err := createSSHClient(homeDir, hostCfg)
 	if err != nil {
 		log.Fatalf("error occurred starting ssh connection: %v", err)
 	}
@@ -248,12 +248,20 @@ func setupDaemonLogging(homeDir, identity string) {
 	log.SetOutput(f)
 }
 
-func createSSHClient(host, home, user string) (*ssh.Client, error) {
-	// Enterprise Strictness: Always check known_hosts
-	knownHostPath := filepath.Join(home, ".ssh", "known_hosts")
-	hostKeyCallback, err := knownhosts.New(knownHostPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load known_hosts: %w", err)
+func createSSHClient(home string, hostCfg *config.HostConfig) (*ssh.Client, error) {
+	// Host Key Verification
+	var hostKeyCallback ssh.HostKeyCallback
+	if hostCfg.IgnoreHostKey {
+		hostKeyCallback = ssh.InsecureIgnoreHostKey()
+		log.Println("WARNING: Host key verification is disabled for this connection.")
+	} else {
+		// Enterprise Strictness: Always check known_hosts
+		knownHostPath := filepath.Join(home, ".ssh", "known_hosts")
+		var err error
+		hostKeyCallback, err = knownhosts.New(knownHostPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load known_hosts: %w", err)
+		}
 	}
 
 	// Auth: Agent + Key Files
@@ -263,7 +271,11 @@ func createSSHClient(host, home, user string) (*ssh.Client, error) {
 	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 		if conn, err := net.Dial("unix", sock); err == nil {
 			agentClient := agent.NewClient(conn)
-			methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
+			signers, err := agentClient.Signers()
+			if err == nil && len(signers) > 0 {
+				methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
+				log.Printf("Added %d key(s) from SSH agent", len(signers))
+			}
 		}
 	}
 
@@ -276,6 +288,9 @@ func createSSHClient(host, home, user string) (*ssh.Client, error) {
 			signer, err := ssh.ParsePrivateKey(keyBytes)
 			if err == nil {
 				methods = append(methods, ssh.PublicKeys(signer))
+				log.Printf("Added key from file: %s", keyPath)
+			} else {
+				log.Printf("Failed to parse key from file %s: %v", keyPath, err)
 			}
 		}
 	}
@@ -284,10 +299,12 @@ func createSSHClient(host, home, user string) (*ssh.Client, error) {
 		return nil, errors.New("no valid authentication methods found (agent or keys)")
 	}
 
-	sshUser := user
+	sshUser := hostCfg.User
 	if sshUser == "" {
 		sshUser = os.Getenv("USER")
 	}
+
+	log.Printf("Connecting to %s@%s:%s", sshUser, hostCfg.Address, hostCfg.Port)
 
 	cfg := &ssh.ClientConfig{
 		User:            sshUser,
@@ -296,5 +313,5 @@ func createSSHClient(host, home, user string) (*ssh.Client, error) {
 		Timeout:         5 * time.Second,
 	}
 
-	return ssh.Dial("tcp", net.JoinHostPort(host, config.RemotePort), cfg)
+	return ssh.Dial("tcp", net.JoinHostPort(hostCfg.Address, hostCfg.Port), cfg)
 }

@@ -13,9 +13,6 @@ import (
 var defaultConfigFile []byte
 
 const (
-	// RemotePort SSH default port
-	RemotePort = "22"
-
 	// SocketSubDir - where unix sockets will reside
 	SocketSubDir = ".ssh/sockets"
 	// IdleTimeout - how long the master will exist
@@ -24,7 +21,10 @@ const (
 
 // HostConfig defines settings for a specific host
 type HostConfig struct {
+	Address         string   `json:"address"`
+	Port            string   `json:"port"`
 	User            string   `json:"user"`
+	IgnoreHostKey   bool     `json:"ignore_host_key"`
 	AllowedCommands []string `json:"allowed_commands"`
 }
 
@@ -49,19 +49,46 @@ type Config struct {
 func (c *Config) GetHostConfig(host string) *HostConfig {
 	hostCfg, ok := c.Hosts[host]
 	if !ok {
-		// No specific config for this host, return defaults
-		return &c.Defaults
+		// No specific config for this host, return defaults but set address to host if default address is empty
+		cfg := c.Defaults
+		if cfg.Address == "" {
+			cfg.Address = host
+		}
+		if cfg.Port == "" {
+			cfg.Port = "22"
+		}
+		return &cfg
 	}
 
 	// Host config exists, but might be missing values. Fill in with defaults.
-	if hostCfg.User == "" {
-		hostCfg.User = c.Defaults.User
+	// We make a local copy to modify and return a pointer to it (escapes to heap)
+	newCfg := hostCfg
+
+	if newCfg.Address == "" {
+		if c.Defaults.Address != "" {
+			newCfg.Address = c.Defaults.Address
+		} else {
+			newCfg.Address = host
+		}
 	}
-	if len(hostCfg.AllowedCommands) == 0 {
-		hostCfg.AllowedCommands = c.Defaults.AllowedCommands
+	if newCfg.Port == "" {
+		if c.Defaults.Port != "" {
+			newCfg.Port = c.Defaults.Port
+		} else {
+			newCfg.Port = "22"
+		}
+	}
+	if newCfg.User == "" {
+		newCfg.User = c.Defaults.User
+	}
+	if !newCfg.IgnoreHostKey {
+		newCfg.IgnoreHostKey = c.Defaults.IgnoreHostKey
+	}
+	if len(newCfg.AllowedCommands) == 0 {
+		newCfg.AllowedCommands = c.Defaults.AllowedCommands
 	}
 
-	return &hostCfg
+	return &newCfg
 }
 
 // LoadConfig reads the configuration from a JSON file

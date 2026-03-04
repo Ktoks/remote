@@ -1,6 +1,7 @@
 {
   "defaults": {
     "user": "",
+    "port": "22",
     "allowed_commands": [
       "ls",
       "grep",
@@ -10,8 +11,34 @@
   },
   "hosts": {
     "mcpi": {
+      "address": "raspberrypi.local",
       "user": "pi",
+      "port": "22",
       "allowed_commands": []
+    },
+    "custom-host": {
+      "address": "192.168.1.100",
+      "port": "2222",
+      "user": "admin"
+    }
+  },
+  "hosts": {
+    "localhost": {
+      "address": "localhost",
+      "user": "ktoks",
+      "port": "22",
+      "ignore_host_key": true,
+      "allowed_commands": [
+        "ls",
+        "grep",
+        "cat",
+        "echo"
+      ]
+    },
+    "custom-host": {
+      "address": "localhost",
+      "port": "22",
+      "user": "ktoks"
     }
   }
 }
