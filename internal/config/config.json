@@ -27,7 +27,7 @@
       "address": "localhost",
       "user": "ktoks",
       "port": "22",
-      "ignore_host_key": true,
+      "ignore_host_key": false,
       "allowed_commands": [
         "ls",
         "grep",

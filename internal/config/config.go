@@ -3,7 +3,9 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "embed"
@@ -86,6 +88,21 @@ func (c *Config) GetHostConfig(host string) *HostConfig {
 	}
 	if len(newCfg.AllowedCommands) == 0 {
 		newCfg.AllowedCommands = c.Defaults.AllowedCommands
+	}
+
+	// Environment Overrides
+	if envUser := os.Getenv("REMOTE_USER"); envUser != "" {
+		newCfg.User = envUser
+	}
+	if envAddr := os.Getenv("REMOTE_ADDR"); envAddr != "" {
+		newCfg.Address = envAddr
+	}
+	if envPort := os.Getenv("REMOTE_PORT"); envPort != "" {
+		newCfg.Port = envPort
+	}
+	if envIgnore := os.Getenv("REMOTE_IGNORE_HOST_KEY"); envIgnore != "" {
+		envIgnore = strings.ToLower(envIgnore)
+		newCfg.IgnoreHostKey = (envIgnore == "true" || envIgnore == "1" || envIgnore == "yes")
 	}
 
 	return &newCfg
