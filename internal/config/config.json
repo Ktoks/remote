@@ -1,44 +1,35 @@
 {
   "defaults": {
-    "user": "",
+    "user": "ktoks",
     "port": "22",
+    "security": {
+      "allow_pipes": false,
+      "allow_redirects": false,
+      "allow_chaining": false
+    },
     "allowed_commands": [
       "ls",
-      "grep",
-      "cat",
+      "pwd",
+      "whoami",
       "echo"
     ]
   },
   "hosts": {
-    "mcpi": {
-      "address": "raspberrypi.local",
-      "user": "pi",
-      "port": "22",
-      "allowed_commands": []
-    },
-    "custom-host": {
-      "address": "192.168.1.100",
-      "port": "2222",
-      "user": "admin"
-    }
-  },
-  "hosts": {
     "localhost": {
-      "address": "localhost",
-      "user": "ktoks",
-      "port": "22",
-      "ignore_host_key": false,
-      "allowed_commands": [
-        "ls",
-        "grep",
-        "cat",
-        "echo"
+      "ignore_host_key": true,
+      "security": {
+        "allow_pipes": true
+      },
+      "constraints": [
+        {
+          "command": "cat",
+          "deny_args": ["/etc/shadow", "/etc/passwd", ".ssh"]
+        },
+        {
+          "command": "ls",
+          "allow_args": ["/home/ktoks", "/tmp", "-l"]
+        }
       ]
-    },
-    "custom-host": {
-      "address": "localhost",
-      "port": "22",
-      "user": "ktoks"
     }
   }
 }

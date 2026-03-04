@@ -163,13 +163,9 @@ func handleConnection(conn net.Conn, client *ssh.Client, cfg *config.HostConfig)
 }
 
 func execRemote(client *ssh.Client, cmd string, enc *protocol.Encoder, cfg *config.HostConfig) {
-	// Security: Validate the command against the allowlist
-	parts := strings.Fields(cmd)
-	if len(parts) == 0 {
-		return // Ignore empty commands
-	}
-	if !cfg.IsCommandAllowed(parts[0]) {
-		errMsg := fmt.Sprintf("Command not allowed: %s\n", parts[0])
+	// Security: Validate the command using AST analysis
+	if err := cfg.ValidateShellCommand(cmd); err != nil {
+		errMsg := fmt.Sprintf("Security violation: %v\n", err)
 		if enc_err := enc.Encode(protocol.TypeStderr, []byte(errMsg)); enc_err != nil {
 			log.Printf("Error occured encoding STDERR: %v", enc_err)
 		}

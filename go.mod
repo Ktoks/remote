@@ -6,3 +6,5 @@ require (
 	golang.org/x/crypto v0.45.0
 	golang.org/x/sys v0.38.0
 )
+
+require mvdan.cc/sh/v3 v3.12.0 // indirect
